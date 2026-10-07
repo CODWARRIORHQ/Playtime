@@ -204,7 +204,7 @@ h1 span { color: var(--accent); }
 .hours-row > strong { overflow: hidden; font-size: 10px; font-weight: 500; text-overflow: ellipsis; white-space: nowrap; }
 .hours-track { height: 5px; overflow: hidden; border-radius: 5px; background: #302f36; }
 .hours-track span { display: block; height: 100%; border-radius: inherit; }
-.bar-violet { background: #af8df2; }.bar-green { background: #75c98c; }.bar-yellow { background: #dcb95d; }.bar-red { background: #e77d69; }.bar-blue { background: #6da5d3; }
+.bar-violet { background: #af8df2; }.bar-green { background: #75c98c; }.bar-yellow { background: #dcb95d; }.bar-red { background: #e77d69; }.bar-blue { background: #6da5d3; }.bar-pink { background: #e78fbb; }
 .hours-value { color: #b9b5c0; font-size: 9px; text-align: right; }
 .settings-layout { display: grid; grid-template-columns: 1.5fr 1fr; align-items: start; gap: 15px; }
 .settings-panel, .account-panel { padding: 18px; }
