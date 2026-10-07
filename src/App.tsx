@@ -10,6 +10,7 @@ type LibraryGame = {
   appId: number;
   name: string;
   genre: string;
+  playtimeMinutes: number;
   hours: number;
   progress?: number;
   color: string;
@@ -169,12 +170,13 @@ function getPlaytimeBuckets(history: PlaytimeHistory, range: PlaytimeRange): Pla
 
 function makeLibraryGames(data: SteamDashboard | null): LibraryGame[] {
   if (!data) {
-    return games.map((game, index) => ({ ...game, appId: index }));
+    return games.map((game, index) => ({ ...game, playtimeMinutes: game.hours * 60, appId: index }));
   }
   return data.games.map((game, index) => ({
     appId: game.appId,
     name: game.name,
     genre: "Juego de Steam",
+    playtimeMinutes: game.playtimeMinutes,
     hours: Math.round((game.playtimeMinutes / 60) * 10) / 10,
     color: ["violet", "red", "green", "blue", "yellow", "pink"][index % 6],
     initials: game.name.split(/\s+/).slice(0, 2).map((part) => part[0]).join("").toUpperCase(),
@@ -246,6 +248,7 @@ function Icon({ name, size = 18 }: { name: string; size?: number }) {
 
 function App() {
   const [page, setPage] = useState<Page>("Inicio");
+  const [selectedGameId, setSelectedGameId] = useState<number | null>(null);
   const [query, setQuery] = useState("");
   const [notice, setNotice] = useState("");
   const [accent, setAccent] = useState(() => localStorage.getItem("steam-dashboard-accent") || "#a78bfa");
@@ -265,6 +268,14 @@ function App() {
     () => libraryGames.filter((game) => game.name.toLowerCase().includes(query.trim().toLowerCase())),
     [libraryGames, query],
   );
+  const selectedLibraryGame = selectedGameId === null
+    ? undefined
+    : libraryGames.find((game) => game.appId === selectedGameId);
+
+  function navigateTo(target: Page) {
+    if (target !== "Biblioteca") setSelectedGameId(null);
+    setPage(target);
+  }
 
   useEffect(() => {
     if (!isTauri()) return;
@@ -417,6 +428,14 @@ function App() {
     }
   }
 
+  async function openGameStore(appId: number) {
+    try {
+      await openUrl(`https://store.steampowered.com/app/${appId}/`);
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : String(error));
+    }
+  }
+
   async function checkForAppUpdate() {
     if (!isTauri()) {
       setNotice("La búsqueda de actualizaciones solo funciona en la aplicación de escritorio.");
@@ -449,7 +468,7 @@ function App() {
   return (
     <main className={`app-shell${compact ? " compact" : ""}`} style={{ "--accent": accent } as React.CSSProperties}>
       <aside className="sidebar">
-        <a className="brand" href="#" onClick={(event) => { event.preventDefault(); setPage("Inicio"); }}>
+        <a className="brand" href="#" onClick={(event) => { event.preventDefault(); navigateTo("Inicio"); }}>
           <span className="brand-mark"><Icon name="gamepad" size={21} /></span>
           <span className="brand-name">playtime<span>.</span></span>
         </a>
@@ -457,7 +476,7 @@ function App() {
         <div className="sidebar-caption">TU ESPACIO</div>
         <nav className="main-nav" aria-label="Navegación principal">
           {navItems.map((item) => (
-            <button className={`nav-item${page === item.label ? " active" : ""}`} key={item.label} onClick={() => setPage(item.label)}>
+            <button className={`nav-item${page === item.label ? " active" : ""}`} key={item.label} onClick={() => navigateTo(item.label)}>
               <Icon name={item.icon} /><span>{item.label}</span>
               {item.label === "Logros" && <span className="nav-count">{steamData ? recentAchievements.length.toLocaleString("es-ES") : "12"}</span>}
             </button>
@@ -465,7 +484,7 @@ function App() {
         </nav>
 
         <div className="sidebar-caption sidebar-caption-spaced">PERSONALIZACIÓN</div>
-        <button className={`nav-item${page === "Ajustes" ? " active" : ""}`} onClick={() => setPage("Ajustes")}>
+        <button className={`nav-item${page === "Ajustes" ? " active" : ""}`} onClick={() => navigateTo("Ajustes")}>
           <Icon name="settings" /><span>Ajustes</span>
         </button>
 
@@ -496,10 +515,14 @@ function App() {
         {notice && <div className="notice" role="status">{notice}<button aria-label="Cerrar aviso" onClick={() => setNotice("")}>×</button></div>}
 
         <div className="content">
-          {page === "Inicio" && <Dashboard onNavigate={setPage} onConnect={() => void connectSteam()} games={libraryGames} achievements={recentAchievements} steamData={steamData} playtimeHistory={playtimeHistory} isBusy={isBusy} onSync={() => void syncSteam()} />}
-          {page === "Biblioteca" && <Library games={filteredGames} query={query} />}
+          {page === "Inicio" && <Dashboard onNavigate={navigateTo} onConnect={() => void connectSteam()} games={libraryGames} achievements={recentAchievements} steamData={steamData} playtimeHistory={playtimeHistory} isBusy={isBusy} onSync={() => void syncSteam()} />}
+          {page === "Biblioteca" && (selectedGameId === null
+            ? <Library games={filteredGames} query={query} onSelectGame={setSelectedGameId} />
+            : selectedLibraryGame
+              ? <GameDetails game={selectedLibraryGame} data={steamData} onBack={() => setSelectedGameId(null)} onOpenStore={() => void openGameStore(selectedLibraryGame.appId)} />
+              : <div className="empty-state"><strong>No encontramos este juego</strong><button className="text-link" onClick={() => setSelectedGameId(null)}>Volver a la biblioteca</button></div>)}
           {page === "Logros" && <Achievements data={steamData} items={recentAchievements} />}
-          {page === "Estadísticas" && <Statistics data={steamData} games={libraryGames} />}
+          {page === "Estadísticas" && <Statistics data={steamData} games={libraryGames} onNavigate={navigateTo} />}
           {page === "Ajustes" && <Settings accent={accent} compact={compact} onAccentChange={updateAccent} onCompactChange={updateCompact} steamId={steamId} steamData={steamData} apiKey={steamKey} hasApiKey={hasApiKey} isBusy={isBusy} loginPending={loginPending} onApiKeyChange={setSteamKey} onSaveApiKey={() => void saveSteamKey()} onConnect={() => void connectSteam()} onCancelLogin={() => void cancelSteamLogin()} onSync={() => void syncSteam()} onDisconnect={() => void disconnectSteam()} onOpenApiKeyPage={() => void openSteamApiKeyPage()} />}
           <footer className="demo-disclaimer">{steamData ? "DATOS DE STEAM · Según la visibilidad de tu perfil y los datos disponibles en Steam." : "VISTA DE DEMOSTRACIÓN · Los datos son ilustrativos y no proceden de una cuenta de Steam."}</footer>
         </div>
@@ -701,12 +724,62 @@ function GameArtwork({ game, className, children }: { game: LibraryGame; classNa
   );
 }
 
-function Library({ games: visibleGames, query }: { games: LibraryGame[]; query: string }) {
+function Library({ games: visibleGames, query, onSelectGame }: { games: LibraryGame[]; query: string; onSelectGame: (appId: number) => void }) {
   return (
     <>
       <PageHeading eyebrow="TU COLECCIÓN" title="Biblioteca" description="Todos tus mundos, aventuras y horas de juego." />
       <div className="library-toolbar"><span>{visibleGames.length.toLocaleString("es-ES")} juegos <span className="toolbar-separator">·</span> Ordenados por horas jugadas</span><button className="filter-button"><Icon name="filter" size={16} /> Filtrar</button></div>
-      {visibleGames.length ? <div className="library-grid">{visibleGames.map((game) => <div className="library-card" key={game.appId}><GameArtwork game={game} className="library-art"><small>{game.genre.split(" · ")[0].toUpperCase()}</small></GameArtwork><div className="library-card-info"><strong>{game.name}</strong><span>{game.hours.toLocaleString("es-ES")} horas jugadas</span>{game.progress !== undefined && <div className="progress-track"><span style={{ width: `${game.progress}%` }} /></div>}</div></div>)}</div> : <div className="empty-state"><Icon name="search" size={24} /><strong>{query ? `No encontramos “${query}”` : "No hay juegos para mostrar"}</strong><span>{query ? "Prueba con otro nombre de juego." : "Comprueba que tu biblioteca de Steam sea pública."}</span></div>}
+      {visibleGames.length ? <div className="library-grid">{visibleGames.map((game) => <button className="library-card" type="button" key={game.appId} onClick={() => onSelectGame(game.appId)} aria-label={`Ver estadísticas de ${game.name}`}><GameArtwork game={game} className="library-art"><small>{game.genre.split(" · ")[0].toUpperCase()}</small></GameArtwork><div className="library-card-info"><strong>{game.name}</strong><span className="library-hours">{game.hours.toLocaleString("es-ES")} horas jugadas</span>{game.progress !== undefined && <div className="progress-track"><span style={{ width: `${game.progress}%` }} /></div>}<span className="library-card-link">Ver estadísticas <Icon name="arrow" size={12} /></span></div></button>)}</div> : <div className="empty-state"><Icon name="search" size={24} /><strong>{query ? `No encontramos “${query}”` : "No hay juegos para mostrar"}</strong><span>{query ? "Prueba con otro nombre de juego." : "Comprueba que tu biblioteca de Steam sea pública."}</span></div>}
+    </>
+  );
+}
+
+function GameDetails({ game, data, onBack, onOpenStore }: { game: LibraryGame; data: SteamDashboard | null; onBack: () => void; onOpenStore: () => void }) {
+  const steamGame = data?.games.find((item) => item.appId === game.appId);
+  const achievements = data?.achievements.filter((achievement) => achievement.appId === game.appId) ?? [];
+  const color = ["violet", "red", "green", "blue", "yellow", "pink"][game.appId % 6];
+
+  return (
+    <>
+      <button className="back-button" type="button" onClick={onBack}><Icon name="chevron" size={14} /> Volver a la biblioteca</button>
+      <section className="game-detail-hero">
+        <GameArtwork game={game} className="game-detail-art"><span className="game-detail-title">{game.name}</span></GameArtwork>
+        <div className="game-detail-heading">
+          <div className="eyebrow">ESTADÍSTICAS DEL JUEGO</div>
+          <h1>{game.name}</h1>
+          <p>{data ? "Datos consultados desde tu cuenta de Steam." : "Estadísticas ilustrativas del modo de demostración."}</p>
+          {data && <button className="period-button" type="button" onClick={onOpenStore}>Ver página en Steam <Icon name="arrow" size={13} /></button>}
+        </div>
+      </section>
+
+      <section className="stats-grid game-detail-stats" aria-label={`Estadísticas de ${game.name}`}>
+        <StatCard icon="clock" label="TIEMPO TOTAL" value={`${game.hours.toLocaleString("es-ES")} h`} change="Registrado en Steam" tone="blue" />
+        <StatCard icon="chart" label="ÚLTIMAS 2 SEMANAS" value={steamGame ? `${(steamGame.playtimeTwoWeeksMinutes / 60).toLocaleString("es-ES", { maximumFractionDigits: 1 })} h` : "—"} change={steamGame ? "Actividad reciente de Steam" : "No disponible en demostración"} tone="green" />
+        <StatCard icon="trophy" label="LOGROS DESBLOQUEADOS" value={data ? achievements.length.toLocaleString("es-ES") : "—"} change={data ? "Logros visibles en Steam" : "Conecta Steam para consultarlos"} tone="gold" />
+        <StatCard icon="gamepad" label="ACTIVIDAD" value={game.hours > 0 ? "Jugado" : "Sin jugar"} change={game.status} tone="purple" />
+      </section>
+
+      <section className="panel page-panel game-achievements-panel">
+        <PanelHeading title="Logros de este juego" subtitle={data ? "Logros desbloqueados visibles para tu cuenta" : "Conecta Steam para ver tus logros reales"} />
+        {achievements.length ? (
+          <div className="achievement-list full-list">
+            {achievements.map((achievement, index) => (
+              <div className="achievement-row" key={`${achievement.appId}-${achievement.name}-${index}`}>
+                <div className={`achievement-mark cover-${color}`}><Icon name="trophy" size={17} /></div>
+                <div className="achievement-copy"><strong>{achievement.name}</strong><span>{achievement.description || "Logro desbloqueado"}</span></div>
+                <span className="achievement-date">{achievement.unlockedAt ? new Intl.DateTimeFormat("es-ES", { dateStyle: "medium" }).format(new Date(achievement.unlockedAt)) : "Fecha no disponible"}</span>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <div className="game-achievements-empty">
+            <Icon name="trophy" size={22} />
+            <strong>{data ? "No hay logros desbloqueados disponibles" : "Logros no disponibles en la demostración"}</strong>
+            <span>{data ? "Puede que este juego no tenga logros o que Steam no haya compartido sus estadísticas." : "Conecta Steam para consultar los datos de este juego."}</span>
+          </div>
+        )}
+      </section>
+      {data && <p className="game-detail-note">Steam muestra los logros desbloqueados accesibles; no siempre permite consultar el total de logros o el porcentaje de progreso.</p>}
     </>
   );
 }
@@ -721,8 +794,10 @@ function Achievements({ data, items }: { data: SteamDashboard | null; items: Ret
   );
 }
 
-function Statistics({ data, games: library }: { data: SteamDashboard | null; games: LibraryGame[] }) {
-  const hours = (data ? library : [...library].sort((left, right) => right.hours - left.hours)).slice(0, 5);
+function Statistics({ data, games: library, onNavigate }: { data: SteamDashboard | null; games: LibraryGame[]; onNavigate: (page: Page) => void }) {
+  const hours = [...library]
+    .filter((game) => game.playtimeMinutes >= 600)
+    .sort((left, right) => right.hours - left.hours);
   const totalMinutes = data?.games.reduce((total, game) => total + game.playtimeMinutes, 0) ?? 0;
   const totalHours = Math.floor(totalMinutes / 60);
   const mostPlayed = hours[0];
@@ -730,7 +805,7 @@ function Statistics({ data, games: library }: { data: SteamDashboard | null; gam
     <>
       <PageHeading eyebrow="TUS NÚMEROS, TU HISTORIA" title="Estadísticas" description="Una mirada a cómo repartes tu tiempo entre mundos." />
       <section className="stats-grid"><StatCard icon="clock" label="TIEMPO TOTAL" value={`${(data ? totalHours : 1284).toLocaleString("es-ES")} h`} change="desde que empezaste" tone="blue" /><StatCard icon="gamepad" label="JUEGO MÁS LARGO" value={`${(mostPlayed?.hours ?? 184).toLocaleString("es-ES")} h`} change={mostPlayed?.name ?? "Baldur's Gate 3"} tone="purple" /><StatCard icon="chart" label="PROMEDIO SEMANAL" value={data ? "—" : "18.2 h"} change={data ? "Steam no ofrece este dato" : "+3.1 h esta semana"} tone="green" /><StatCard icon="trophy" label="LOGROS DESBLOQUEADOS" value={(data ? data.achievements.length : 146).toLocaleString("es-ES")} change={data ? "en estadísticas accesibles" : "en 23 juegos"} tone="gold" /></section>
-      <section className="panel page-panel hours-panel"><PanelHeading title="Tus juegos más jugados" subtitle="Horas acumuladas en tu biblioteca" action="Ver biblioteca" /><div className="hours-list">{hours.map((game, index) => <div className="hours-row" key={game.appId}><span className="hours-rank">{String(index + 1).padStart(2, "0")}</span><strong>{game.name}</strong><div className="hours-track"><span className={`bar-${game.color}`} style={{ width: `${mostPlayed?.hours ? (game.hours / mostPlayed.hours) * 100 : 0}%` }} /></div><span className="hours-value">{game.hours.toLocaleString("es-ES")} h</span></div>)}</div></section>
+      <section className="panel page-panel hours-panel"><PanelHeading title="Tus juegos más jugados" subtitle="Juegos con 10 horas o más, ordenados por tiempo jugado" action="Ver biblioteca" onAction={() => onNavigate("Biblioteca")} /><div className="hours-list">{hours.length ? hours.map((game, index) => <div className="hours-row" key={game.appId}><span className="hours-rank">{String(index + 1).padStart(2, "0")}</span><strong>{game.name}</strong><div className="hours-track"><span className={`bar-${game.color}`} style={{ width: `${mostPlayed?.hours ? (game.hours / mostPlayed.hours) * 100 : 0}%` }} /></div><span className="hours-value">{game.hours.toLocaleString("es-ES")} h</span></div>) : <div className="empty-state"><Icon name="gamepad" size={24} /><strong>No hay juegos con 10 horas todavía</strong><span>Cuando un juego alcance las 10 horas aparecerá en esta lista.</span></div>}</div></section>
     </>
   );
 }
