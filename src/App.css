@@ -92,16 +92,22 @@ h1 span { color: var(--accent); }
 .chart-total strong { font: 600 24px "Space Grotesk", sans-serif; }
 .chart-total strong span { color: #9995a0; font-size: 13px; }
 .chart-growth { padding: 3px 6px; border-radius: 4px; color: #82d7a3; background: #20362b; font-size: 8px; }
+.chart-periods { display: flex; gap: 5px; margin-top: 13px; }
+.chart-period { padding: 5px 9px; border: 1px solid #302f36; border-radius: 5px; color: #8d8995; background: #1e1d23; font-size: 9px; cursor: pointer; }
+.chart-period:hover { color: #e8e3ef; border-color: #514b5b; }
+.chart-period.active { color: #eee6ff; border-color: color-mix(in srgb, var(--accent) 55%, #302f36); background: color-mix(in srgb, var(--accent) 16%, #1e1d23); }
 .chart-area { height: 142px; display: flex; margin-top: 5px; }
-.chart-y-labels { width: 30px; display: flex; flex-direction: column; justify-content: space-between; padding: 7px 0 18px; color: #6d6a74; font-size: 8px; }
+.chart-y-labels { width: 39px; display: flex; flex-direction: column; justify-content: space-between; padding: 7px 0 18px; color: #6d6a74; font-size: 8px; }
 .chart-plot { position: relative; flex: 1; min-width: 0; }
 .chart-grid-lines { position: absolute; inset: 7px 0 21px; display: flex; flex-direction: column; justify-content: space-between; }
 .chart-grid-lines i { border-top: 1px dashed #2d2c33; }
-.chart-svg { position: absolute; inset: 0 0 19px; width: 100%; height: calc(100% - 19px); overflow: visible; }
+.chart-bars { position: absolute; inset: 7px 0 21px; display: flex; gap: 2px; }
+.chart-column { display: flex; flex: 1 1 0; align-items: flex-end; justify-content: center; min-width: 0; height: 100%; }
+.chart-bar { display: block; width: min(14px, 82%); min-height: 2px; border-radius: 3px 3px 0 0; background: linear-gradient(180deg, var(--accent), color-mix(in srgb, var(--accent) 43%, #26232d)); }
+.chart-bar[data-empty="true"] { height: 0; min-height: 0; }
 .chart-days { position: absolute; right: 0; bottom: 0; left: 0; display: flex; justify-content: space-between; color: #716e79; font-size: 8px; }
-.chart-legend { display: flex; justify-content: space-between; margin-top: 2px; color: #706d77; font-size: 8px; }
-.chart-legend > span:first-child { display: flex; align-items: center; gap: 6px; color: #a4a0aa; }
-.legend-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--accent); }
+.chart-empty { min-height: 142px; display: grid; place-items: center; padding: 18px; color: #817e88; font-size: 10px; text-align: center; }
+.chart-footnote { margin: 5px 0 0; color: #6f6c76; font-size: 8px; line-height: 1.5; }
 .favorite-cover { position: relative; height: 124px; display: grid; place-items: center; margin: 14px 0 12px; overflow: hidden; border-radius: 6px; }
 .cover-violet { background: radial-gradient(ellipse at 50% 42%, #9b6593 0, #593d69 28%, #222232 72%, #19191e 100%); }
 .cover-red { background: radial-gradient(ellipse at 60% 30%, #f0865a, #853d3e 36%, #301e2b 80%); }
@@ -221,11 +227,6 @@ h1 span { color: var(--accent); }
 .steam-account-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
 .disconnect-button { padding: 7px 8px; border: 1px solid #473238; border-radius: 5px; color: #e6a0a5; background: #261c21; font-size: 8px; cursor: pointer; }
 .steam-limitations { padding: 9px; border: 1px solid #38323b; border-radius: 6px; color: #918c99; background: #211f25; font-size: 8px; line-height: 1.55; }
-.steam-hours-list { min-height: 142px; display: grid; align-content: center; gap: 15px; padding: 12px 0 7px; }
-.steam-hours-row { display: grid; grid-template-columns: minmax(80px, 1fr) minmax(70px, 1.4fr) 45px; align-items: center; gap: 10px; }
-.steam-hours-row > span { overflow: hidden; color: #bcb8c2; font-size: 9px; text-overflow: ellipsis; white-space: nowrap; }
-.steam-hours-row > strong { color: #bcb8c2; font-size: 9px; font-weight: 500; text-align: right; white-space: nowrap; }
-.empty-chart { color: #817e88; font-size: 10px; text-align: center; }
 .favorite-cover-image { background-position: center; background-size: cover; }
 .favorite-live-title { z-index: 1; max-width: 80%; color: #fff; font: 600 16px "Space Grotesk", sans-serif; text-align: center; text-shadow: 0 2px 8px #000; }
 .library-art { background-position: center; background-size: cover; }

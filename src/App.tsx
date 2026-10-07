@@ -24,6 +24,148 @@ type SteamDashboard = {
   unavailableAchievementGames: number;
   incompleteAchievementMetadataGames: number;
 };
+type PlaytimeHistory = {
+  firstRecordedAt: string;
+  baseline: Record<string, number>;
+  events: { date: string; minutes: number }[];
+};
+type PlaytimeRange = "all" | "year" | "month" | "days";
+type PlaytimeBucket = { key: string; label: string; minutes: number };
+
+const emptyPlaytimeHistory: PlaytimeHistory = { firstRecordedAt: "", baseline: {}, events: [] };
+
+function getLocalDateKey(date: Date) {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function loadPlaytimeHistory(steamId: string): PlaytimeHistory {
+  const raw = localStorage.getItem(`playtime-history-${steamId}`);
+  if (!raw) return emptyPlaytimeHistory;
+
+  let value: unknown;
+  try {
+    value = JSON.parse(raw);
+  } catch {
+    throw new Error("No se pudo leer el historial local de horas de Steam.");
+  }
+  if (
+    !isRecord(value) ||
+    typeof value.firstRecordedAt !== "string" ||
+    !value.firstRecordedAt ||
+    Number.isNaN(Date.parse(value.firstRecordedAt)) ||
+    !isRecord(value.baseline) ||
+    !Array.isArray(value.events)
+  ) {
+    throw new Error("El historial local de horas de Steam tiene un formato no válido.");
+  }
+
+  const baseline: Record<string, number> = {};
+  for (const [appId, minutes] of Object.entries(value.baseline)) {
+    if (typeof minutes !== "number" || !Number.isFinite(minutes) || minutes < 0) {
+      throw new Error("El historial local de horas de Steam tiene un formato no válido.");
+    }
+    baseline[appId] = minutes;
+  }
+
+  const events: PlaytimeHistory["events"] = value.events.map((event) => {
+    if (
+      !isRecord(event) ||
+      typeof event.date !== "string" ||
+      !/^\d{4}-\d{2}-\d{2}$/.test(event.date) ||
+      typeof event.minutes !== "number" ||
+      !Number.isFinite(event.minutes) ||
+      event.minutes <= 0
+    ) {
+      throw new Error("El historial local de horas de Steam tiene un formato no válido.");
+    }
+    return { date: event.date, minutes: event.minutes };
+  });
+
+  return { firstRecordedAt: value.firstRecordedAt, baseline, events };
+}
+
+function recordPlaytimeSnapshot(steamId: string, data: SteamDashboard): PlaytimeHistory {
+  const previous = loadPlaytimeHistory(steamId);
+  const baseline = { ...previous.baseline };
+  let addedMinutes = 0;
+
+  for (const game of data.games) {
+    const key = String(game.appId);
+    const previousMinutes = baseline[key];
+    if (previous.firstRecordedAt && previousMinutes !== undefined && game.playtimeMinutes > previousMinutes) {
+      addedMinutes += game.playtimeMinutes - previousMinutes;
+    }
+    baseline[key] = game.playtimeMinutes;
+  }
+
+  const history: PlaytimeHistory = {
+    firstRecordedAt: previous.firstRecordedAt || new Date().toISOString(),
+    baseline,
+    events: [...previous.events],
+  };
+  if (addedMinutes > 0) {
+    const today = getLocalDateKey(new Date());
+    const event = history.events.find((item) => item.date === today);
+    if (event) event.minutes += addedMinutes;
+    else history.events.push({ date: today, minutes: addedMinutes });
+  }
+
+  localStorage.setItem(`playtime-history-${steamId}`, JSON.stringify(history));
+  return history;
+}
+
+function getPlaytimeBuckets(history: PlaytimeHistory, range: PlaytimeRange): PlaytimeBucket[] {
+  if (!history.firstRecordedAt) return [];
+
+  const today = new Date();
+  const start = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+  const buckets: PlaytimeBucket[] = [];
+  const monthFormatter = new Intl.DateTimeFormat("es-ES", { month: "short" });
+  const weekdayFormatter = new Intl.DateTimeFormat("es-ES", { weekday: "short" });
+
+  if (range === "all" || range === "year") {
+    const firstRecorded = new Date(history.firstRecordedAt);
+    const firstMonth = range === "all"
+      ? new Date(firstRecorded.getFullYear(), firstRecorded.getMonth(), 1)
+      : new Date(today.getFullYear(), today.getMonth() - 11, 1);
+    const monthCount = (today.getFullYear() - firstMonth.getFullYear()) * 12 + today.getMonth() - firstMonth.getMonth() + 1;
+    const count = range === "year" ? 12 : Math.max(1, monthCount);
+
+    for (let index = 0; index < count; index += 1) {
+      const date = new Date(firstMonth.getFullYear(), firstMonth.getMonth() + index, 1);
+      const key = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}`;
+      buckets.push({ key, label: monthFormatter.format(date).replace(".", ""), minutes: 0 });
+    }
+  } else {
+    const count = range === "month" ? 30 : 7;
+    for (let offset = count - 1; offset >= 0; offset -= 1) {
+      const date = new Date(start);
+      date.setDate(start.getDate() - offset);
+      const key = getLocalDateKey(date);
+      buckets.push({
+        key,
+        label: range === "days" ? weekdayFormatter.format(date).replace(".", "") : String(date.getDate()),
+        minutes: 0,
+      });
+    }
+  }
+
+  const bucketByKey = new Map(buckets.map((bucket) => [bucket.key, bucket]));
+  for (const event of history.events) {
+    const key = range === "all" || range === "year" ? event.date.slice(0, 7) : event.date;
+    const bucket = bucketByKey.get(key);
+    if (bucket) bucket.minutes += event.minutes;
+  }
+
+  return buckets;
+}
 
 function makeLibraryGames(data: SteamDashboard | null): LibraryGame[] {
   if (!data) {
@@ -110,6 +252,7 @@ function App() {
   const [compact, setCompact] = useState(() => localStorage.getItem("steam-dashboard-compact") === "true");
   const [steamId, setSteamId] = useState(() => localStorage.getItem("playtime-steam-id") || "");
   const [steamData, setSteamData] = useState<SteamDashboard | null>(null);
+  const [playtimeHistory, setPlaytimeHistory] = useState<PlaytimeHistory>(emptyPlaytimeHistory);
   const [steamKey, setSteamKey] = useState("");
   const [hasApiKey, setHasApiKey] = useState(false);
   const [isBusy, setIsBusy] = useState(false);
@@ -132,7 +275,7 @@ function App() {
         const savedSteamId = localStorage.getItem("playtime-steam-id");
         if (savedSteamId && keySaved) {
           setIsBusy(true);
-          setSteamData(await invoke<SteamDashboard>("steam_sync", { steamId: savedSteamId }));
+          acceptSteamData(savedSteamId, await invoke<SteamDashboard>("steam_sync", { steamId: savedSteamId }));
         }
       } catch (error) {
         setNotice(error instanceof Error ? error.message : String(error));
@@ -152,6 +295,12 @@ function App() {
     localStorage.setItem("steam-dashboard-compact", String(value));
   }
 
+  function acceptSteamData(id: string, data: SteamDashboard) {
+    setSteamData(data);
+    setPlaytimeHistory(emptyPlaytimeHistory);
+    setPlaytimeHistory(recordPlaytimeSnapshot(id, data));
+  }
+
   async function syncSteam(id = steamId) {
     if (!id) {
       setNotice("Inicia sesión con Steam antes de sincronizar tu biblioteca.");
@@ -160,7 +309,7 @@ function App() {
     setIsBusy(true);
     setNotice("Sincronizando perfil, biblioteca, horas y logros de Steam…");
     try {
-      setSteamData(await invoke<SteamDashboard>("steam_sync", { steamId: id }));
+      acceptSteamData(id, await invoke<SteamDashboard>("steam_sync", { steamId: id }));
       setNotice("");
     } catch (error) {
       setNotice(error instanceof Error ? error.message : String(error));
@@ -189,12 +338,13 @@ function App() {
       localStorage.setItem("playtime-steam-id", id);
       setSteamId(id);
       setSteamData(null);
+      setPlaytimeHistory(emptyPlaytimeHistory);
       setPage("Ajustes");
       setNotice(hasApiKey
         ? "Steam confirmó tu cuenta. Actualizando biblioteca y logros…"
         : "Steam confirmó tu cuenta. Añade tu clave de Web API en esta pantalla para cargar tus datos.");
       if (hasApiKey) {
-        setSteamData(await invoke<SteamDashboard>("steam_sync", { steamId: id }));
+        acceptSteamData(id, await invoke<SteamDashboard>("steam_sync", { steamId: id }));
         setNotice("");
       }
     } catch (error) {
@@ -229,7 +379,7 @@ function App() {
       setHasApiKey(true);
       if (steamId) {
         setNotice("Clave guardada. Sincronizando tu perfil, biblioteca y logros…");
-        setSteamData(await invoke<SteamDashboard>("steam_sync", { steamId }));
+        acceptSteamData(steamId, await invoke<SteamDashboard>("steam_sync", { steamId }));
         setNotice("");
       } else {
         setNotice("Clave guardada de forma segura. Ahora inicia sesión con Steam.");
@@ -249,6 +399,7 @@ function App() {
       localStorage.removeItem("playtime-steam-id");
       setSteamId("");
       setSteamData(null);
+      setPlaytimeHistory(emptyPlaytimeHistory);
       setHasApiKey(false);
       setNotice("Se eliminó la clave de API guardada en Windows y se desconectó la cuenta.");
     } catch (error) {
@@ -345,7 +496,7 @@ function App() {
         {notice && <div className="notice" role="status">{notice}<button aria-label="Cerrar aviso" onClick={() => setNotice("")}>×</button></div>}
 
         <div className="content">
-          {page === "Inicio" && <Dashboard onNavigate={setPage} onConnect={() => void connectSteam()} games={libraryGames} achievements={recentAchievements} steamData={steamData} isBusy={isBusy} onSync={() => void syncSteam()} />}
+          {page === "Inicio" && <Dashboard onNavigate={setPage} onConnect={() => void connectSteam()} games={libraryGames} achievements={recentAchievements} steamData={steamData} playtimeHistory={playtimeHistory} isBusy={isBusy} onSync={() => void syncSteam()} />}
           {page === "Biblioteca" && <Library games={filteredGames} query={query} />}
           {page === "Logros" && <Achievements data={steamData} items={recentAchievements} />}
           {page === "Estadísticas" && <Statistics data={steamData} games={libraryGames} />}
@@ -364,6 +515,7 @@ function Dashboard({
   games: library,
   achievements: unlockedAchievements,
   steamData,
+  playtimeHistory,
   isBusy,
 }: {
   onNavigate: (page: Page) => void;
@@ -372,6 +524,7 @@ function Dashboard({
   games: LibraryGame[];
   achievements: ReturnType<typeof makeAchievements>;
   steamData: SteamDashboard | null;
+  playtimeHistory: PlaytimeHistory;
   isBusy: boolean;
 }) {
   const favorite = library[0];
@@ -399,25 +552,7 @@ function Dashboard({
 
       <section className="dashboard-grid">
         <div className="panel playtime-panel">
-          <PanelHeading title="Tiempo de juego" subtitle={steamData ? "Horas totales registradas por juego" : "Tu actividad durante esta semana"} action={steamData ? undefined : "Esta semana"} />
-          <div className="chart-total"><strong>{steamData ? totalHours.toLocaleString("es-ES") : "36"}<span>h</span>{!steamData && <> 24<span>m</span></>}</strong>{steamData && <span className="chart-growth">{library.length} juegos</span>}{!steamData && <span className="chart-growth">↗ 18.6%</span>}</div>
-          {steamData ? <div className="steam-hours-list">
-            {library.slice(0, 5).map((game) => <div className="steam-hours-row" key={game.appId}><span>{game.name}</span><div className="progress-track"><span style={{ width: `${favorite?.hours ? Math.max(3, (game.hours / favorite.hours) * 100) : 0}%` }} /></div><strong>{game.hours.toLocaleString("es-ES")} h</strong></div>)}
-            {!library.length && <div className="empty-chart">Steam no ha devuelto juegos con horas jugadas.</div>}
-          </div> : <div className="chart-area" role="img" aria-label="Gráfico de horas jugadas de lunes a domingo">
-            <div className="chart-y-labels"><span>12h</span><span>8h</span><span>4h</span><span>0h</span></div>
-            <div className="chart-plot">
-              <div className="chart-grid-lines"><i /><i /><i /><i /></div>
-              <svg className="chart-svg" viewBox="0 0 600 150" preserveAspectRatio="none" aria-hidden="true">
-                <defs><linearGradient id="chartFill" x1="0" x2="0" y1="0" y2="1"><stop offset="0" stopColor="var(--accent)" stopOpacity=".27" /><stop offset="1" stopColor="var(--accent)" stopOpacity="0" /></linearGradient></defs>
-                <path d="M0 118 C35 112 46 103 86 108 S142 130 172 98 S228 83 258 91 S315 105 344 63 S401 67 430 76 S485 38 516 50 S565 25 600 18 V150 H0Z" fill="url(#chartFill)" />
-                <path d="M0 118 C35 112 46 103 86 108 S142 130 172 98 S228 83 258 91 S315 105 344 63 S401 67 430 76 S485 38 516 50 S565 25 600 18" fill="none" stroke="var(--accent)" strokeWidth="3" vectorEffect="non-scaling-stroke" />
-                <circle cx="600" cy="18" r="5" fill="var(--accent)" stroke="#17171d" strokeWidth="3" vectorEffect="non-scaling-stroke" />
-              </svg>
-              <div className="chart-days"><span>Lun</span><span>Mar</span><span>Mié</span><span>Jue</span><span>Vie</span><span>Sáb</span><span>Dom</span></div>
-            </div>
-          </div>}
-          {!steamData && <div className="chart-legend"><span><i className="legend-dot" /> Horas jugadas</span><span>Actualizado hace un momento</span></div>}
+          <PlaytimeChart steamData={steamData} history={playtimeHistory} />
         </div>
 
         <div className="panel favorite-panel">
@@ -453,6 +588,80 @@ function Dashboard({
         <div><strong>¿Listo para ver tus estadísticas reales?</strong><span>Conecta Steam y descubre tu historia de juego.</span></div>
         <button onClick={onConnect}>Conectar cuenta <Icon name="arrow" size={14} /></button>
       </section>}
+    </>
+  );
+}
+
+function formatPlaytime(minutes: number) {
+  const hours = Math.floor(minutes / 60);
+  const remainingMinutes = minutes % 60;
+  return `${hours} h ${remainingMinutes} min`;
+}
+
+function formatPlaytimeAxis(minutes: number) {
+  return minutes >= 60 ? `${Math.round(minutes / 60)}h` : `${minutes}m`;
+}
+
+function PlaytimeChart({ steamData, history }: { steamData: SteamDashboard | null; history: PlaytimeHistory }) {
+  const [range, setRange] = useState<PlaytimeRange>("days");
+  const buckets = getPlaytimeBuckets(history, range);
+  const totalMinutes = buckets.reduce((total, bucket) => total + bucket.minutes, 0);
+  const maxMinutes = Math.max(60, ...buckets.map((bucket) => bucket.minutes));
+  const axisMax = Math.ceil(maxMinutes / 60) * 60;
+  const ticks = buckets.length <= 7
+    ? buckets
+    : Array.from({ length: 7 }, (_, index) => buckets[Math.round(index * (buckets.length - 1) / 6)]);
+  const emptyMessage = !steamData
+    ? "Conecta Steam para empezar a registrar tus horas."
+    : history.events.length === 0
+      ? "Historial iniciado. Sincroniza Steam después de jugar para registrar nuevas horas."
+      : "No se detectaron horas nuevas en este periodo.";
+
+  return (
+    <>
+      <PanelHeading title="Horas jugadas" subtitle={steamData ? "Actividad detectada desde la primera sincronización" : "Conecta Steam para empezar a registrar actividad"} />
+      <div className="chart-periods" role="group" aria-label="Periodo de horas jugadas">
+        {([
+          ["all", "Todo", "Desde la primera sincronización"],
+          ["year", "1 año", "Últimos 12 meses"],
+          ["month", "Mes", "Últimos 30 días"],
+          ["days", "Días", "Últimos 7 días"],
+        ] as const).map(([value, label, title]) => (
+          <button
+            className={`chart-period${range === value ? " active" : ""}`}
+            key={value}
+            type="button"
+            title={title}
+            aria-pressed={range === value}
+            onClick={() => setRange(value)}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+      <div className="chart-total">
+        <strong>{Math.floor(totalMinutes / 60).toLocaleString("es-ES")}<span>h</span> {totalMinutes % 60}<span>m</span></strong>
+        {history.firstRecordedAt && <span className="chart-growth">desde {new Intl.DateTimeFormat("es-ES", { dateStyle: "medium" }).format(new Date(history.firstRecordedAt))}</span>}
+      </div>
+      {totalMinutes > 0 ? (
+        <div className="chart-area">
+          <div className="chart-y-labels"><span>{formatPlaytimeAxis(axisMax)}</span><span>{formatPlaytimeAxis(Math.round(axisMax / 2))}</span><span>0h</span></div>
+          <div className="chart-plot" role="img" aria-label={`Horas jugadas: ${formatPlaytime(totalMinutes)} en el periodo seleccionado`}>
+            <div className="chart-grid-lines"><i /><i /><i /></div>
+            <div className="chart-bars">
+              {buckets.map((bucket) => (
+                <div className="chart-column" key={bucket.key} title={`${bucket.label}: ${formatPlaytime(bucket.minutes)}`}>
+                  <span className="chart-bar" data-empty={bucket.minutes === 0} style={{ height: `${(bucket.minutes / axisMax) * 100}%` }} />
+                </div>
+              ))}
+            </div>
+            <div className="chart-days">{ticks.map((bucket) => <span key={bucket.key}>{bucket.label}</span>)}</div>
+          </div>
+        </div>
+      ) : (
+        <div className="chart-empty">{emptyMessage}</div>
+      )}
+      <p className="chart-footnote">Se guarda en este equipo desde la primera sincronización; cada sincronización registra las horas nuevas en ese día y no importa actividad anterior.</p>
     </>
   );
 }
