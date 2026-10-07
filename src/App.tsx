@@ -709,16 +709,28 @@ function GameRow({ game }: { game: LibraryGame }) {
 }
 
 function GameArtwork({ game, className, children }: { game: LibraryGame; className: string; children?: ReactNode }) {
-  const [imageFailed, setImageFailed] = useState(false);
+  const [imageIndex, setImageIndex] = useState(0);
+  const imageUrls = game.coverUrl
+    ? [...new Set([
+      game.coverUrl,
+      `https://cdn.akamai.steamstatic.com/steam/apps/${game.appId}/capsule_616x353.jpg`,
+      `https://cdn.akamai.steamstatic.com/steam/apps/${game.appId}/library_hero.jpg`,
+      `https://cdn.akamai.steamstatic.com/steam/apps/${game.appId}/library_600x900.jpg`,
+      `https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/${game.appId}/header.jpg`,
+      `https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/${game.appId}/library_hero.jpg`,
+      `https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/${game.appId}/library_600x900.jpg`,
+    ])]
+    : [];
+  const imageUrl = imageUrls[imageIndex];
 
-  useEffect(() => setImageFailed(false), [game.coverUrl]);
+  useEffect(() => setImageIndex(0), [game.appId, game.coverUrl]);
 
   return (
     <div className={`game-artwork ${className} cover-${game.color}`}>
-      {game.coverUrl && !imageFailed
-        ? <img className="game-artwork-image" src={game.coverUrl} alt="" onError={() => setImageFailed(true)} />
+      {imageUrl
+        ? <img className="game-artwork-image" src={imageUrl} alt="" onError={() => setImageIndex((current) => current + 1)} />
         : <span className="game-artwork-initials">{game.initials}</span>}
-      {game.coverUrl && !imageFailed && <span className="game-artwork-shade" />}
+      {imageUrl && <span className="game-artwork-shade" />}
       {children}
     </div>
   );
