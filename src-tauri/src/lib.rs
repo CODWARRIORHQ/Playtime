@@ -44,7 +44,7 @@ struct SteamGame {
     name: String,
     playtime_minutes: u64,
     playtime_two_weeks_minutes: u64,
-    icon_url: Option<String>,
+    cover_url: String,
 }
 
 #[derive(Serialize)]
@@ -105,8 +105,6 @@ struct OwnedGame {
     playtime_forever: u64,
     #[serde(rename = "playtime_2weeks")]
     playtime_2weeks: Option<u64>,
-    #[serde(rename = "img_icon_url")]
-    img_icon_url: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -357,16 +355,10 @@ async fn steam_sync(steam_id: String) -> Result<SteamDashboard, String> {
                 .unwrap_or_else(|| format!("Juego {}", game.appid)),
             playtime_minutes: game.playtime_forever,
             playtime_two_weeks_minutes: game.playtime_2weeks.unwrap_or_default(),
-            icon_url: game
-                .img_icon_url
-                .as_ref()
-                .filter(|hash| !hash.is_empty())
-                .map(|hash| {
-                    format!(
-                    "https://media.steampowered.com/steamcommunity/public/images/apps/{}/{}.jpg",
-                    game.appid, hash
-                )
-                }),
+            cover_url: format!(
+                "https://cdn.akamai.steamstatic.com/steam/apps/{}/header.jpg",
+                game.appid
+            ),
         })
         .collect();
     let (achievements, unavailable_achievement_games, incomplete_achievement_metadata_games) =

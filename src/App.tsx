@@ -15,11 +15,11 @@ type LibraryGame = {
   color: string;
   initials: string;
   status: string;
-  iconUrl?: string;
+  coverUrl?: string;
 };
 type SteamDashboard = {
   profile: { steamId: string; name: string; avatarUrl: string; profileUrl: string };
-  games: { appId: number; name: string; playtimeMinutes: number; playtimeTwoWeeksMinutes: number; iconUrl?: string }[];
+  games: { appId: number; name: string; playtimeMinutes: number; playtimeTwoWeeksMinutes: number; coverUrl: string }[];
   achievements: { appId: number; gameName: string; name: string; description: string; unlockedAt?: string }[];
   unavailableAchievementGames: number;
   incompleteAchievementMetadataGames: number;
@@ -179,7 +179,7 @@ function makeLibraryGames(data: SteamDashboard | null): LibraryGame[] {
     color: ["violet", "red", "green", "blue", "yellow", "pink"][index % 6],
     initials: game.name.split(/\s+/).slice(0, 2).map((part) => part[0]).join("").toUpperCase(),
     status: game.playtimeTwoWeeksMinutes > 0 ? "Jugado en las últimas 2 semanas" : "Horas registradas en Steam",
-    iconUrl: game.iconUrl,
+    coverUrl: game.coverUrl,
   }));
 }
 
@@ -557,7 +557,9 @@ function Dashboard({
 
         <div className="panel favorite-panel">
           <PanelHeading title="Tu juego favorito" subtitle="El que siempre te hace volver" />
-          <div className={`favorite-cover${favorite?.iconUrl ? " favorite-cover-image" : " cover-violet"}`} style={favorite?.iconUrl ? { backgroundImage: `linear-gradient(#11111566, #111115aa), url("${favorite.iconUrl.replace(/"/g, "")}")` } : undefined}>{steamData ? <span className="favorite-live-title">{favorite?.name || "Aún sin juegos"}</span> : <><span className="cover-orbit orbit-one" /><span className="cover-orbit orbit-two" /><span className="cover-title">BALDUR'S<br /><b>GATE III</b></span><span className="cover-year">FORGET THE RULES</span></>}</div>
+          {steamData && favorite
+            ? <GameArtwork game={favorite} className="favorite-cover"><span className="favorite-live-title">{favorite.name}</span></GameArtwork>
+            : <div className="favorite-cover cover-violet"><span className="cover-orbit orbit-one" /><span className="cover-orbit orbit-two" /><span className="cover-title">BALDUR'S<br /><b>GATE III</b></span><span className="cover-year">FORGET THE RULES</span></div>}
           <div className="favorite-info"><div><span className="muted-label">MÁS JUGADO</span><h3>{steamData ? favorite?.name || "Sin datos de juego" : "Baldur's Gate 3"}</h3><p>{steamData ? "Según las horas registradas" : "RPG · Aventura narrativa"}</p></div><span className="favorite-hours">{steamData ? favorite?.hours.toLocaleString("es-ES") ?? "0" : "184"} <small>horas</small></span></div>
           <button className="text-link" onClick={() => onNavigate("Biblioteca")}>Ver en biblioteca <Icon name="arrow" size={14} /></button>
         </div>
@@ -677,8 +679,24 @@ function PanelHeading({ title, subtitle, action, onAction }: { title: string; su
 function GameRow({ game }: { game: LibraryGame }) {
   return (
     <div className="game-row">
-      {game.iconUrl ? <img className="game-cover" src={game.iconUrl} alt="" /> : <div className={`game-cover cover-${game.color}`}><span>{game.initials}</span></div>}
+      <GameArtwork game={game} className="game-cover" />
       <div className="game-row-main"><div className="game-title-line"><strong>{game.name}</strong><span>{game.hours} h</span></div><div className="game-meta">{game.status}</div>{game.progress !== undefined && <div className="progress-track"><span style={{ width: `${game.progress}%` }} /></div>}</div>
+    </div>
+  );
+}
+
+function GameArtwork({ game, className, children }: { game: LibraryGame; className: string; children?: ReactNode }) {
+  const [imageFailed, setImageFailed] = useState(false);
+
+  useEffect(() => setImageFailed(false), [game.coverUrl]);
+
+  return (
+    <div className={`game-artwork ${className} cover-${game.color}`}>
+      {game.coverUrl && !imageFailed
+        ? <img className="game-artwork-image" src={game.coverUrl} alt="" onError={() => setImageFailed(true)} />
+        : <span className="game-artwork-initials">{game.initials}</span>}
+      {game.coverUrl && !imageFailed && <span className="game-artwork-shade" />}
+      {children}
     </div>
   );
 }
@@ -688,7 +706,7 @@ function Library({ games: visibleGames, query }: { games: LibraryGame[]; query: 
     <>
       <PageHeading eyebrow="TU COLECCIÓN" title="Biblioteca" description="Todos tus mundos, aventuras y horas de juego." />
       <div className="library-toolbar"><span>{visibleGames.length.toLocaleString("es-ES")} juegos <span className="toolbar-separator">·</span> Ordenados por horas jugadas</span><button className="filter-button"><Icon name="filter" size={16} /> Filtrar</button></div>
-      {visibleGames.length ? <div className="library-grid">{visibleGames.map((game) => <div className="library-card" key={game.appId}><div className={`library-art cover-${game.color}`} style={game.iconUrl ? { backgroundImage: `linear-gradient(#11111555, #111115bb), url("${game.iconUrl.replace(/"/g, "")}")` } : undefined}><span>{game.iconUrl ? "" : game.initials}</span><small>{game.genre.split(" · ")[0].toUpperCase()}</small></div><div className="library-card-info"><strong>{game.name}</strong><span>{game.hours.toLocaleString("es-ES")} horas jugadas</span>{game.progress !== undefined && <div className="progress-track"><span style={{ width: `${game.progress}%` }} /></div>}</div></div>)}</div> : <div className="empty-state"><Icon name="search" size={24} /><strong>{query ? `No encontramos “${query}”` : "No hay juegos para mostrar"}</strong><span>{query ? "Prueba con otro nombre de juego." : "Comprueba que tu biblioteca de Steam sea pública."}</span></div>}
+      {visibleGames.length ? <div className="library-grid">{visibleGames.map((game) => <div className="library-card" key={game.appId}><GameArtwork game={game} className="library-art"><small>{game.genre.split(" · ")[0].toUpperCase()}</small></GameArtwork><div className="library-card-info"><strong>{game.name}</strong><span>{game.hours.toLocaleString("es-ES")} horas jugadas</span>{game.progress !== undefined && <div className="progress-track"><span style={{ width: `${game.progress}%` }} /></div>}</div></div>)}</div> : <div className="empty-state"><Icon name="search" size={24} /><strong>{query ? `No encontramos “${query}”` : "No hay juegos para mostrar"}</strong><span>{query ? "Prueba con otro nombre de juego." : "Comprueba que tu biblioteca de Steam sea pública."}</span></div>}
     </>
   );
 }
