@@ -2,7 +2,12 @@ use keyring::Entry;
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use std::{collections::HashMap, io, sync::Mutex, time::Duration};
-use tauri::State;
+use tauri::{
+    menu::{Menu, MenuItem},
+    tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
+    Manager, State, WindowEvent,
+};
+use tauri_plugin_autostart::ManagerExt;
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
     net::TcpListener,
@@ -63,6 +68,7 @@ struct SteamDashboard {
     profile: SteamProfile,
     games: Vec<SteamGame>,
     achievements: Vec<SteamAchievement>,
+    achievement_games_checked: usize,
     unavailable_achievement_games: usize,
     incomplete_achievement_metadata_games: usize,
 }
@@ -361,8 +367,12 @@ async fn steam_sync(steam_id: String) -> Result<SteamDashboard, String> {
             ),
         })
         .collect();
-    let (achievements, unavailable_achievement_games, incomplete_achievement_metadata_games) =
-        fetch_achievements(&client, &api_key, &steam_id, &owned_games).await;
+    let (
+        achievements,
+        achievement_games_checked,
+        unavailable_achievement_games,
+        incomplete_achievement_metadata_games,
+    ) = fetch_achievements(&client, &api_key, &steam_id, &owned_games).await;
 
     Ok(SteamDashboard {
         profile: SteamProfile {
@@ -373,6 +383,7 @@ async fn steam_sync(steam_id: String) -> Result<SteamDashboard, String> {
         },
         games,
         achievements,
+        achievement_games_checked,
         unavailable_achievement_games,
         incomplete_achievement_metadata_games,
     })
@@ -388,11 +399,12 @@ async fn fetch_achievements(
     api_key: &str,
     steam_id: &str,
     owned_games: &[OwnedGame],
-) -> (Vec<SteamAchievement>, usize, usize) {
+) -> (Vec<SteamAchievement>, usize, usize, usize) {
     let mut pending = JoinSet::new();
-    let mut games = owned_games.iter().filter(|game| game.playtime_forever > 0);
+    let mut games = owned_games.iter();
     let mut achievements = Vec::new();
     let mut unavailable = 0;
+    let mut checked = 0;
     let mut incomplete_metadata = 0;
 
     loop {
@@ -415,6 +427,7 @@ async fn fetch_achievements(
         match result {
             Ok(Ok((game_achievements, metadata_incomplete))) => {
                 achievements.extend(game_achievements);
+                checked += 1;
                 if metadata_incomplete {
                     incomplete_metadata += 1;
                 }
@@ -424,7 +437,7 @@ async fn fetch_achievements(
     }
 
     achievements.sort_by(|left, right| right.unlocked_at.cmp(&left.unlocked_at));
-    (achievements, unavailable, incomplete_metadata)
+    (achievements, checked, unavailable, incomplete_metadata)
 }
 
 async fn fetch_game_achievements(
@@ -433,19 +446,35 @@ async fn fetch_game_achievements(
     steam_id: &str,
     game: OwnedGame,
 ) -> Result<(Vec<SteamAchievement>, bool), ()> {
-    let response = client
-        .get("https://api.steampowered.com/ISteamUserStats/GetPlayerAchievements/v1/")
-        .query(&[
-            ("key", api_key),
-            ("steamid", steam_id),
-            ("appid", &game.appid.to_string()),
-        ])
-        .send()
-        .await;
-    let Ok(response) = response else {
-        return Err(());
-    };
-    let Ok(response) = response.error_for_status() else {
+    let mut response = None;
+    for attempt in 0..3 {
+        match client
+            .get("https://api.steampowered.com/ISteamUserStats/GetPlayerAchievements/v1/")
+            .query(&[
+                ("key", api_key),
+                ("steamid", steam_id),
+                ("appid", &game.appid.to_string()),
+            ])
+            .send()
+            .await
+        {
+            Ok(result) if result.status().is_success() => {
+                response = Some(result);
+                break;
+            }
+            Ok(result)
+                if !result.status().is_server_error()
+                    && result.status().as_u16() != reqwest::StatusCode::TOO_MANY_REQUESTS =>
+            {
+                return Err(());
+            }
+            Err(_) | Ok(_) if attempt < 2 => {
+                tokio::time::sleep(Duration::from_millis(250 * (1 << attempt))).await;
+            }
+            Err(_) | Ok(_) => return Err(()),
+        }
+    }
+    let Some(response) = response else {
         return Err(());
     };
     let Ok(response) = response.json::<PlayerAchievementsResponse>().await else {
@@ -663,12 +692,89 @@ async fn receive_steam_callback(
     Ok(claimed_id.to_string())
 }
 
+fn show_main_window(app: &tauri::AppHandle) {
+    let Some(window) = app.get_webview_window("main") else {
+        eprintln!("No se encontró la ventana principal de Playtime.");
+        return;
+    };
+    if let Err(error) = window.show() {
+        eprintln!("No se pudo mostrar Playtime desde la bandeja: {error}");
+        return;
+    }
+    if let Err(error) = window.unminimize() {
+        eprintln!("No se pudo restaurar la ventana de Playtime: {error}");
+        return;
+    }
+    if let Err(error) = window.set_focus() {
+        eprintln!("No se pudo enfocar la ventana de Playtime: {error}");
+    }
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
+        .plugin(
+            tauri_plugin_autostart::Builder::new()
+                .args(["--hidden"])
+                .app_name("Playtime")
+                .build(),
+        )
         .plugin(tauri_plugin_updater::Builder::new().build())
         .manage(SteamAuthState::default())
+        .setup(|app| {
+            if !cfg!(debug_assertions) {
+                app.autolaunch().enable()?;
+            }
+
+            let open_item = MenuItem::with_id(app, "open", "Abrir Playtime", true, None::<&str>)?;
+            let quit_item = MenuItem::with_id(app, "quit", "Salir", true, None::<&str>)?;
+            let menu = Menu::with_items(app, &[&open_item, &quit_item])?;
+            let icon = app
+                .default_window_icon()
+                .cloned()
+                .ok_or_else(|| std::io::Error::other("No se encontró el icono de Playtime."))?;
+
+            TrayIconBuilder::new()
+                .icon(icon)
+                .menu(&menu)
+                .show_menu_on_left_click(false)
+                .on_menu_event(|app, event| match event.id().as_ref() {
+                    "open" => show_main_window(app),
+                    "quit" => app.exit(0),
+                    _ => {}
+                })
+                .on_tray_icon_event(|tray, event| {
+                    if matches!(
+                        event,
+                        TrayIconEvent::Click {
+                            button: MouseButton::Left,
+                            button_state: MouseButtonState::Up,
+                            ..
+                        }
+                    ) {
+                        show_main_window(tray.app_handle());
+                    }
+                })
+                .build(app)?;
+
+            if std::env::args().any(|argument| argument == "--hidden") {
+                let window = app.get_webview_window("main").ok_or_else(|| {
+                    std::io::Error::other("No se encontró la ventana principal de Playtime.")
+                })?;
+                window.hide()?;
+            }
+
+            Ok(())
+        })
+        .on_window_event(|window, event| {
+            if let WindowEvent::CloseRequested { api, .. } = event {
+                api.prevent_close();
+                if let Err(error) = window.hide() {
+                    eprintln!("No se pudo ocultar Playtime en la bandeja: {error}");
+                }
+            }
+        })
         .invoke_handler(tauri::generate_handler![
             start_steam_login,
             finish_steam_login,

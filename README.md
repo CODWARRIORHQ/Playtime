@@ -6,6 +6,8 @@ Aplicación de escritorio para reunir biblioteca, horas de juego, logros y estad
 
 La aplicación permite iniciar sesión mediante Steam OpenID, consultar biblioteca/horas/logros con la Steam Web API, buscar juegos y personalizar el aspecto. La clave de API personal se guarda en el Administrador de credenciales de Windows.
 
+En Windows, la versión instalada configura Playtime para iniciarse al iniciar sesión en el sistema. En ese inicio se ejecuta en segundo plano: la ventana se puede abrir desde el icono de Playtime en la bandeja del sistema. Cerrar la ventana con la X la oculta; el menú del icono permite volver a abrirla o salir completamente.
+
 ## Conectar Steam
 
 1. Inicia Playtime e inicia sesión desde **Conectar Steam**. La contraseña se introduce únicamente en la página oficial de Steam.
@@ -13,7 +15,9 @@ La aplicación permite iniciar sesión mediante Steam OpenID, consultar bibliote
 3. Pega la clave en Playtime y guárdala. La aplicación la almacena en el Administrador de credenciales de Windows y la utiliza desde Rust; no la incorpora al frontend, al instalador ni a un servidor remoto.
 4. Pon en público los detalles de juegos de tu perfil de Steam para que la Web API pueda leer la biblioteca y las horas. Usa **Actualizar datos** después de cambiar la privacidad.
 
-La sincronización consulta el perfil, la biblioteca y las horas de juego. También solicita logros para juegos jugados; Steam puede no devolver estadísticas o nombres/descripciones de algunos títulos, y la aplicación indica estos casos. La primera sincronización de logros puede tardar si se han jugado muchos títulos.
+La sincronización consulta el perfil, la biblioteca y las horas de juego. También solicita logros de cada juego devuelto por la biblioteca; Steam puede no devolver estadísticas o nombres/descripciones de algunos títulos, y la aplicación indica estos casos. La primera sincronización de logros puede tardar si se han jugado muchos títulos.
+
+Los logros se consultan juego por juego para todos los juegos devueltos por la biblioteca, incluidos los que indican 0 minutos. Steam no ofrece a esta aplicación una cifra global de logros desbloqueados de la cuenta; el total mostrado suma los logros que devolvieron las estadísticas disponibles. Las consultas que fallan de forma temporal se reintentan hasta dos veces.
 
 Steam OpenID confirma la identidad, pero no concede acceso a contenido privado. La Steam Web API no ofrece un endpoint general para el historial completo de compras o fechas de adquisición, ni datos diarios históricos de tiempo de juego. No se solicita ni se almacena la contraseña de Steam.
 
@@ -54,4 +58,4 @@ Los instaladores se generan bajo `src-tauri/target/release/bundle/`.
 
 ## Nota de privacidad
 
-El color de acento y la preferencia de interfaz compacta se guardan en el almacenamiento local del frontend. La aplicación no envía datos ni credenciales a ningún servicio.
+El color de acento, la preferencia de interfaz compacta y el historial local de horas se guardan en el almacenamiento local del frontend. Playtime no envía credenciales a servicios distintos de Steam.
