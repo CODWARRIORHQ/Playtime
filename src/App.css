@@ -146,6 +146,11 @@ h1 span { color: var(--accent); }
 .achievement-copy strong { overflow: hidden; color: #ddd9e3; font-size: 9px; font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }
 .achievement-copy span { overflow: hidden; color: #77747e; font-size: 8px; text-overflow: ellipsis; white-space: nowrap; }
 .achievement-date { align-self: flex-start; color: #77747e; font-size: 8px; white-space: nowrap; }
+.unavailable-achievements-panel { margin-bottom: 17px; }
+.unavailable-achievements-list { display: grid; gap: 9px; max-height: 260px; margin-top: 14px; overflow-y: auto; }
+.unavailable-achievement-row { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 5px 14px; padding: 8px 10px; border: 1px solid #302d35; border-radius: 6px; background: #19181d; font-size: 9px; }
+.unavailable-achievement-row strong { color: #ddd9e3; font-weight: 600; }
+.unavailable-achievement-row span { color: #a39daa; }
 .connect-banner { display: flex; align-items: center; gap: 11px; padding: 12px 14px; border: 1px solid color-mix(in srgb, var(--accent) 26%, #29262f); border-radius: 8px; background: linear-gradient(100deg, color-mix(in srgb, var(--accent) 10%, #19181d), #19181d 58%); }
 .banner-icon { width: 33px; height: 33px; display: grid; flex: 0 0 33px; place-items: center; border-radius: 7px; color: var(--accent); background: color-mix(in srgb, var(--accent) 14%, #25222a); }
 .connect-banner > div:nth-child(2) { display: grid; gap: 3px; }

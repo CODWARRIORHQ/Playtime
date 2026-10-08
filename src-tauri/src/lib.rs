@@ -64,12 +64,20 @@ struct SteamAchievement {
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
+struct UnavailableAchievementGame {
+    app_id: u32,
+    game_name: String,
+    reason: String,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
 struct SteamDashboard {
     profile: SteamProfile,
     games: Vec<SteamGame>,
     achievements: Vec<SteamAchievement>,
     achievement_games_checked: usize,
-    unavailable_achievement_games: usize,
+    unavailable_achievement_games: Vec<UnavailableAchievementGame>,
     incomplete_achievement_metadata_games: usize,
 }
 
@@ -399,11 +407,16 @@ async fn fetch_achievements(
     api_key: &str,
     steam_id: &str,
     owned_games: &[OwnedGame],
-) -> (Vec<SteamAchievement>, usize, usize, usize) {
+) -> (
+    Vec<SteamAchievement>,
+    usize,
+    Vec<UnavailableAchievementGame>,
+    usize,
+) {
     let mut pending = JoinSet::new();
     let mut games = owned_games.iter();
     let mut achievements = Vec::new();
-    let mut unavailable = 0;
+    let mut unavailable = Vec::new();
     let mut checked = 0;
     let mut incomplete_metadata = 0;
 
@@ -432,7 +445,10 @@ async fn fetch_achievements(
                     incomplete_metadata += 1;
                 }
             }
-            Ok(Err(())) | Err(_) => unavailable += 1,
+            Ok(Err(game)) => unavailable.push(game),
+            Err(error) => {
+                eprintln!("Falló la consulta de logros de una tarea: {error}");
+            }
         }
     }
 
@@ -445,8 +461,13 @@ async fn fetch_game_achievements(
     api_key: &str,
     steam_id: &str,
     game: OwnedGame,
-) -> Result<(Vec<SteamAchievement>, bool), ()> {
+) -> Result<(Vec<SteamAchievement>, bool), UnavailableAchievementGame> {
+    let game_name = game
+        .name
+        .clone()
+        .unwrap_or_else(|| format!("Juego {}", game.appid));
     let mut response = None;
+    let mut failure_reason = "Steam no respondió a la consulta.".to_string();
     for attempt in 0..3 {
         match client
             .get("https://api.steampowered.com/ISteamUserStats/GetPlayerAchievements/v1/")
@@ -466,27 +487,61 @@ async fn fetch_game_achievements(
                 if !result.status().is_server_error()
                     && result.status().as_u16() != reqwest::StatusCode::TOO_MANY_REQUESTS =>
             {
-                return Err(());
+                return Err(UnavailableAchievementGame {
+                    app_id: game.appid,
+                    game_name,
+                    reason: format!("Steam respondió con HTTP {}.", result.status().as_u16()),
+                });
             }
-            Err(_) | Ok(_) if attempt < 2 => {
-                tokio::time::sleep(Duration::from_millis(250 * (1 << attempt))).await;
+            Ok(result) => {
+                failure_reason = format!("Steam respondió con HTTP {}.", result.status().as_u16());
+                if attempt < 2 {
+                    tokio::time::sleep(Duration::from_millis(250 * (1 << attempt))).await;
+                }
             }
-            Err(_) | Ok(_) => return Err(()),
+            Err(_) => {
+                failure_reason = "No se pudo conectar con Steam.".to_string();
+                if attempt < 2 {
+                    tokio::time::sleep(Duration::from_millis(250 * (1 << attempt))).await;
+                }
+            }
         }
     }
     let Some(response) = response else {
-        return Err(());
+        return Err(UnavailableAchievementGame {
+            app_id: game.appid,
+            game_name,
+            reason: failure_reason,
+        });
     };
-    let Ok(response) = response.json::<PlayerAchievementsResponse>().await else {
-        return Err(());
-    };
-    if response.playerstats.error.is_some() {
-        return Err(());
+    let response = response
+        .json::<PlayerAchievementsResponse>()
+        .await
+        .map_err(|_| UnavailableAchievementGame {
+            app_id: game.appid,
+            game_name: game_name.clone(),
+            reason: "Steam devolvió una respuesta de logros no válida.".to_string(),
+        })?;
+    if let Some(error) = response.playerstats.error {
+        let message: String = error.trim().chars().take(180).collect();
+        return Err(UnavailableAchievementGame {
+            app_id: game.appid,
+            game_name,
+            reason: if message.is_empty() {
+                "Steam indicó que las estadísticas de este juego no están disponibles.".to_string()
+            } else {
+                format!("Steam: {message}")
+            },
+        });
     }
     let unlocked: Vec<PlayerAchievement> = response
         .playerstats
         .achievements
-        .unwrap_or_default()
+        .ok_or_else(|| UnavailableAchievementGame {
+            app_id: game.appid,
+            game_name: game_name.clone(),
+            reason: "La respuesta de Steam no incluyó la lista de logros.".to_string(),
+        })?
         .into_iter()
         .filter(|achievement| achievement.achieved == 1)
         .collect();
@@ -529,8 +584,6 @@ async fn fetch_game_achievements(
         },
         Err(_) => (HashMap::new(), true),
     };
-    let game_name = game.name.unwrap_or_else(|| format!("Juego {}", game.appid));
-
     let result = unlocked
         .into_iter()
         .map(|achievement| {

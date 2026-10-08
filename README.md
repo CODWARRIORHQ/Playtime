@@ -17,7 +17,7 @@ En Windows, la versión instalada configura Playtime para iniciarse al iniciar s
 
 La sincronización consulta el perfil, la biblioteca y las horas de juego. También solicita logros de cada juego devuelto por la biblioteca; Steam puede no devolver estadísticas o nombres/descripciones de algunos títulos, y la aplicación indica estos casos. La primera sincronización de logros puede tardar si se han jugado muchos títulos.
 
-Los logros se consultan juego por juego para todos los juegos devueltos por la biblioteca, incluidos los que indican 0 minutos. Steam no ofrece a esta aplicación una cifra global de logros desbloqueados de la cuenta; el total mostrado suma los logros que devolvieron las estadísticas disponibles. Las consultas que fallan de forma temporal se reintentan hasta dos veces.
+Los logros se consultan juego por juego para todos los juegos devueltos por la biblioteca, incluidos los que indican 0 minutos. Steam no ofrece a esta aplicación una cifra global de logros desbloqueados de la cuenta; el total mostrado suma los logros que devolvieron las estadísticas disponibles. Las consultas que fallan de forma temporal se reintentan hasta dos veces. En **Logros**, Playtime muestra el nombre y el motivo de los juegos para los que Steam no devolvió datos; una respuesta correcta sin logros se cuenta como consulta completada.
 
 Steam OpenID confirma la identidad, pero no concede acceso a contenido privado. La Steam Web API no ofrece un endpoint general para el historial completo de compras o fechas de adquisición, ni datos diarios históricos de tiempo de juego. No se solicita ni se almacena la contraseña de Steam.
 

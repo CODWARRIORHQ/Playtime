@@ -23,7 +23,7 @@ type SteamDashboard = {
   games: { appId: number; name: string; playtimeMinutes: number; playtimeTwoWeeksMinutes: number; coverUrl: string }[];
   achievements: { appId: number; gameName: string; name: string; description: string; unlockedAt?: string }[];
   achievementGamesChecked: number;
-  unavailableAchievementGames: number;
+  unavailableAchievementGames: { appId: number; gameName: string; reason: string }[];
   incompleteAchievementMetadataGames: number;
 };
 type PlaytimeHistory = {
@@ -801,7 +801,20 @@ function Achievements({ data, items }: { data: SteamDashboard | null; items: Ret
   return (
     <>
       <PageHeading eyebrow="CADA LOGRO CUENTA" title="Logros" description="Celebra todo lo que has conseguido jugando." />
-      <section className="stats-grid achievement-stats"><StatCard icon="trophy" label="LOGROS DESBLOQUEADOS" value={data ? items.length.toLocaleString("es-ES") : "1,092"} change={data ? "devueltos por las estadísticas de Steam" : "en todos tus juegos"} tone="gold" /><StatCard icon="chart" label={data ? "JUEGOS REVISADOS" : "TASA COMPLETADO"} value={data ? data.achievementGamesChecked.toLocaleString("es-ES") : "34.8%"} change={data ? `${data.unavailableAchievementGames} sin datos · ${data.incompleteAchievementMetadataGames} sin nombres` : "+2.4% este mes"} tone="green" /><StatCard icon="gamepad" label="BIBLIOTECA" value={data ? data.games.length.toLocaleString("es-ES") : "6"} change={data ? "juegos consultados" : "juegos perfectos"} tone="purple" /><StatCard icon="clock" label="ÚLTIMO LOGRO" value={data ? items[0]?.date || "—" : "Hoy"} change={data ? items[0]?.game || "Sin logros desbloqueados" : "Hades II"} tone="blue" /></section>
+      <section className="stats-grid achievement-stats"><StatCard icon="trophy" label="LOGROS DESBLOQUEADOS" value={data ? items.length.toLocaleString("es-ES") : "1,092"} change={data ? "devueltos por las estadísticas de Steam" : "en todos tus juegos"} tone="gold" /><StatCard icon="chart" label={data ? "JUEGOS REVISADOS" : "TASA COMPLETADO"} value={data ? data.achievementGamesChecked.toLocaleString("es-ES") : "34.8%"} change={data ? `${data.unavailableAchievementGames.length} sin datos · ${data.incompleteAchievementMetadataGames} sin nombres` : "+2.4% este mes"} tone="green" /><StatCard icon="gamepad" label="BIBLIOTECA" value={data ? data.games.length.toLocaleString("es-ES") : "6"} change={data ? "juegos consultados" : "juegos perfectos"} tone="purple" /><StatCard icon="clock" label="ÚLTIMO LOGRO" value={data ? items[0]?.date || "—" : "Hoy"} change={data ? items[0]?.game || "Sin logros desbloqueados" : "Hades II"} tone="blue" /></section>
+      {data && data.unavailableAchievementGames.length > 0 && (
+        <section className="panel page-panel unavailable-achievements-panel">
+          <PanelHeading title="Juegos sin datos de logros" subtitle="Steam no devolvió datos para estos juegos; se muestra el motivo comunicado." />
+          <div className="unavailable-achievements-list">
+            {data.unavailableAchievementGames.map((game) => (
+              <div className="unavailable-achievement-row" key={game.appId}>
+                <strong>{game.gameName}</strong>
+                <span>{game.reason}</span>
+              </div>
+            ))}
+          </div>
+        </section>
+      )}
       <div className="panel page-panel"><PanelHeading title="Desbloqueados recientemente" subtitle={data ? "Logros visibles en las estadísticas de tus juegos" : "Tus últimas victorias"} /><div className="achievement-list full-list">{items.length ? items.map((item, index) => <div className="achievement-row" key={`${item.game}-${item.title}-${index}`}><div className={`achievement-mark cover-${item.color}`}>{item.mark}</div><div className="achievement-copy"><strong>{item.title}</strong><span>{item.game} · {item.detail}</span></div><span className="achievement-date">{item.date}</span></div>) : <div className="empty-state"><Icon name="trophy" size={24} /><strong>{data ? "No encontramos logros desbloqueados" : "Todavía no hay conexión con Steam"}</strong><span>{data ? "Puede que tus estadísticas de juego sean privadas o que aún no haya logros." : "Conecta tu cuenta para consultar los logros disponibles."}</span></div>}</div></div>
     </>
   );
