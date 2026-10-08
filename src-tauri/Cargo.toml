@@ -1,6 +1,6 @@
 [package]
 name = "playtime"
-version = "0.3.8"
+version = "0.3.9"
 description = "Steam gaming dashboard"
 authors = ["you"]
 edition = "2021"
